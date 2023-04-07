@@ -2,6 +2,14 @@
 
 package org.stella.typecheck;
 
+
+import org.antlr.v4.runtime.misc.Pair;
+import org.syntax.stella.Absyn.*;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+
 /*** Visitor Design Pattern Skeleton. ***/
 
 /* This implements the common visitor design pattern.
@@ -12,6 +20,11 @@ package org.stella.typecheck;
 
 public class VisitTypeCheck
 {
+  public Map<String, ArrayList<String>> functionParametersDictionary = new HashMap<>();
+  public Map<String, ArrayList<String>> variableParametersDictionary = new HashMap<>();
+  public Map<String, Pair<ArrayList<String>, ArrayList<String>>> functions = new HashMap<>();
+  public ArrayList<String> parameters = new ArrayList<>();
+
   public class ProgramVisitor<R,A> implements org.syntax.stella.Absyn.Program.Visitor<R,A>
   {
     public R visit(org.syntax.stella.Absyn.AProgram p, A arg)
@@ -20,8 +33,17 @@ public class VisitTypeCheck
       for (org.syntax.stella.Absyn.Extension x: p.listextension_) {
         x.accept(new ExtensionVisitor<R,A>(), arg);
       }
+//      Add iszero to functions
+      ArrayList<String> listParamToAdd = new ArrayList<>();
+      listParamToAdd.add("TypeNat");
+      ArrayList<String> listReturnToAdd = new ArrayList<>();
+      listReturnToAdd.add("TypeBool");
+      functions.put("iszero", new Pair<>(listParamToAdd, listReturnToAdd));
       for (org.syntax.stella.Absyn.Decl x: p.listdecl_) {
         x.accept(new DeclVisitor<R,A>(), arg);
+        functionParametersDictionary.clear();
+        variableParametersDictionary.clear();
+        parameters.clear();
       }
       return null;
     }
@@ -54,12 +76,22 @@ public class VisitTypeCheck
       for (org.syntax.stella.Absyn.ParamDecl x: p.listparamdecl_) {
         x.accept(new ParamDeclVisitor<R,A>(), arg);
       }
-      p.returntype_.accept(new ReturnTypeVisitor<R,A>(), arg);
+      ArrayList<String> expectetReturnType = p.returntype_.accept(new ReturnTypeVisitor<R,A>(), arg);
       p.throwtype_.accept(new ThrowTypeVisitor<R,A>(), arg);
       for (org.syntax.stella.Absyn.Decl x: p.listdecl_) {
         x.accept(new DeclVisitor<R,A>(), arg);
       }
-      p.expr_.accept(new ExprVisitor<R,A>(), arg);
+      ArrayList<String> params = new ArrayList<>();
+      params.addAll(parameters);
+      Pair<ArrayList<String>, ArrayList<String>> pair = new Pair<ArrayList<String>, ArrayList<String>>(params, expectetReturnType);
+      functions.put(p.stellaident_, pair);
+      ArrayList<String> actualReturnType = p.expr_.accept(new ExprVisitor<R,A>(), arg);
+//      Compare return type of function
+      if (!actualReturnType.equals(expectetReturnType)){
+        System.out.println("Type Error");
+        System.out.println("Return type mismatch in function " + p.stellaident_);
+        System.exit(1);
+      }
       return null;
     }
     public R visit(org.syntax.stella.Absyn.DeclTypeAlias p, A arg)
@@ -89,20 +121,32 @@ public class VisitTypeCheck
     public R visit(org.syntax.stella.Absyn.AParamDecl p, A arg)
     { /* Code for AParamDecl goes here */
       //p.stellaident_;
-      p.type_.accept(new TypeVisitor<R,A>(), arg);
+//      Check if the parameter already exists then add it to functions or to the variables parameters
+      ArrayList<String> type = p.type_.accept(new TypeVisitor<R,A>(), arg);
+      if (variableParametersDictionary.containsKey(p.stellaident_) ||
+              functionParametersDictionary.containsKey(p.stellaident_)){
+        System.out.println("The variable " + p.stellaident_ + " is already defined");
+        System.exit(1);
+      }
+      if (type.size() == 1 || p.type_ instanceof TypeTuple || p.type_ instanceof TypeSum){
+        variableParametersDictionary.put(p.stellaident_, type);
+        parameters.addAll(type);
+      } else {
+        functionParametersDictionary.put(p.stellaident_, type);
+        parameters.addAll(type);
+      }
       return null;
     }
   }
-  public class ReturnTypeVisitor<R,A> implements org.syntax.stella.Absyn.ReturnType.Visitor<R,A>
+  public class ReturnTypeVisitor<R,A> implements org.syntax.stella.Absyn.ReturnType.Visitor<ArrayList<String>,A>
   {
-    public R visit(org.syntax.stella.Absyn.NoReturnType p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.NoReturnType p, A arg)
     { /* Code for NoReturnType goes here */
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.SomeReturnType p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.SomeReturnType p, A arg)
     { /* Code for SomeReturnType goes here */
-      p.type_.accept(new TypeVisitor<R,A>(), arg);
-      return null;
+      return p.type_.accept(new TypeVisitor<R,A>(), arg);
     }
   }
   public class ThrowTypeVisitor<R,A> implements org.syntax.stella.Absyn.ThrowType.Visitor<R,A>
@@ -119,67 +163,82 @@ public class VisitTypeCheck
       return null;
     }
   }
-  public class TypeVisitor<R,A> implements org.syntax.stella.Absyn.Type.Visitor<R,A>
+  public class TypeVisitor<R,A> implements org.syntax.stella.Absyn.Type.Visitor<ArrayList<String>,A>
   {
-    public R visit(org.syntax.stella.Absyn.TypeFun p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeFun p, A arg)
     { /* Code for TypeFun goes here */
+//      Determine the type of a function parameters and return
+      ArrayList<String> result = new ArrayList<>();
+      result.add("Fun");
       for (org.syntax.stella.Absyn.Type x: p.listtype_) {
-        x.accept(new TypeVisitor<R,A>(), arg);
+        result.addAll(x.accept(new TypeVisitor<R,A>(), arg));
       }
-      p.type_.accept(new TypeVisitor<R,A>(), arg);
-      return null;
+      result.addAll(p.type_.accept(new TypeVisitor<R,A>(), arg));
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.TypeRec p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeRec p, A arg)
     { /* Code for TypeRec goes here */
       //p.stellaident_;
       p.type_.accept(new TypeVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.TypeSum p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeSum p, A arg)
     { /* Code for TypeSum goes here */
-      p.type_1.accept(new TypeVisitor<R,A>(), arg);
-      p.type_2.accept(new TypeVisitor<R,A>(), arg);
-      return null;
+//      Determine the type of a sum
+      ArrayList<String> sum = new ArrayList<>();
+      sum.add("Sum");
+      sum.addAll(p.type_1.accept(new TypeVisitor<R,A>(), arg));
+      sum.addAll(p.type_2.accept(new TypeVisitor<R,A>(), arg));
+      return sum;
     }
-    public R visit(org.syntax.stella.Absyn.TypeTuple p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeTuple p, A arg)
     { /* Code for TypeTuple goes here */
+//      Determine the type of a pair
+      ArrayList<String> tupleType = new ArrayList<>();
+      tupleType.add("Pair");
       for (org.syntax.stella.Absyn.Type x: p.listtype_) {
-        x.accept(new TypeVisitor<R,A>(), arg);
+        tupleType.addAll(x.accept(new TypeVisitor<R,A>(), arg));
       }
-      return null;
+      return tupleType;
     }
-    public R visit(org.syntax.stella.Absyn.TypeRecord p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeRecord p, A arg)
     { /* Code for TypeRecord goes here */
       for (org.syntax.stella.Absyn.RecordFieldType x: p.listrecordfieldtype_) {
         x.accept(new RecordFieldTypeVisitor<R,A>(), arg);
       }
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.TypeVariant p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeVariant p, A arg)
     { /* Code for TypeVariant goes here */
       for (org.syntax.stella.Absyn.VariantFieldType x: p.listvariantfieldtype_) {
         x.accept(new VariantFieldTypeVisitor<R,A>(), arg);
       }
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.TypeList p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeList p, A arg)
     { /* Code for TypeList goes here */
       p.type_.accept(new TypeVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.TypeBool p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeBool p, A arg)
     { /* Code for TypeBool goes here */
-      return null;
+      ArrayList<String> result = new ArrayList<>();
+      result.add("TypeBool");
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.TypeNat p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeNat p, A arg)
     { /* Code for TypeNat goes here */
-      return null;
+      ArrayList<String> result = new ArrayList<>();
+      result.add("TypeNat");
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.TypeUnit p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeUnit p, A arg)
     { /* Code for TypeUnit goes here */
-      return null;
+      ArrayList<String> result = new ArrayList<>();
+      result.add("TypeUnit");
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.TypeVar p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeVar p, A arg)
     { /* Code for TypeVar goes here */
       //p.stellaident_;
       return null;
@@ -321,22 +380,102 @@ public class VisitTypeCheck
       return null;
     }
   }
-  public class ExprVisitor<R,A> implements org.syntax.stella.Absyn.Expr.Visitor<R,A>
+  public class ExprVisitor<R,A> implements org.syntax.stella.Absyn.Expr.Visitor<ArrayList<String>,A>
   {
-    public R visit(org.syntax.stella.Absyn.Sequence p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Sequence p, A arg)
     { /* Code for Sequence goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.If p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.If p, A arg)
     { /* Code for If goes here */
+//      Check that the condition under if type bool
+      ArrayList<String> listToCompare = new ArrayList<>();
+      if (p.expr_1 instanceof Var){
+        String varName = ((Var) p.expr_1).stellaident_;
+        if (!variableParametersDictionary.containsKey(varName)){
+          System.out.println("Type Error");
+          System.out.println("Variable " + varName + " is undefined");
+          System.exit(1);
+        } else if (!(variableParametersDictionary.get(varName).equals("TypeBool"))) {
+          System.out.println("Type Error");
+          System.out.println("Expression under If should have TypeBool");
+          System.exit(1);
+        }
+      }
+      listToCompare.add("TypeBool");
+      if (!(p.expr_1.accept(new ExprVisitor<R,A>(), arg).equals(listToCompare))){
+        System.out.println("Type Error");
+        System.out.println("Expression under If should have TypeBool");
+        System.exit(1);
+      }
+
+//      Check that expressions under then and else have the same type
+      if (!(p.expr_2 instanceof Var || p.expr_3 instanceof Var)){
+        if (p.expr_2.accept(new ExprVisitor<R,A>(), arg).equals(p.expr_3.accept(new ExprVisitor<R,A>(), arg))){
+          return p.expr_2.accept(new ExprVisitor<R,A>(), arg);
+        } else{
+          System.out.println("Type Error");
+          System.out.println("Expression under then and else should have the same type");
+          System.exit(1);
+        }
+      } else if (p.expr_2 instanceof Var){
+        String varName2 = ((Var) p.expr_2).stellaident_;
+        if (!variableParametersDictionary.containsKey(varName2)){
+          System.out.println("Type Error");
+          System.out.println("Variable " + varName2 + " is undefined");
+          System.exit(1);
+        }
+        if (p.expr_3 instanceof Var){
+          String varName3 = ((Var) p.expr_3).stellaident_;
+          if (!variableParametersDictionary.containsKey(varName3)){
+            System.out.println("Type Error");
+            System.out.println("Variable " + varName3 + " is undefined");
+            System.exit(1);
+          }
+          if (!(variableParametersDictionary.get(varName2).
+                  equals(variableParametersDictionary.get(varName3)))){
+            System.out.println("Type Error");
+            System.out.println("Expression under then and else should have the same type");
+            System.exit(1);
+          }
+          listToCompare.clear();
+          listToCompare.addAll(variableParametersDictionary.get(varName2));
+          return listToCompare;
+        }
+        else{
+          listToCompare.clear();
+          listToCompare.addAll(variableParametersDictionary.get(varName2));
+          if (!(listToCompare.equals(p.expr_3.accept(new ExprVisitor<R,A>(), arg)))){
+            System.out.println("Type Error");
+            System.out.println("Expression under then and else should have the same type");
+            System.exit(1);
+          }
+          return listToCompare;
+        }
+      } else {
+        String varName3 = ((Var) p.expr_3).stellaident_;
+        if (!variableParametersDictionary.containsKey(varName3)){
+          System.out.println("Type Error");
+          System.out.println("Variable " + varName3 + " is undefined");
+          System.exit(1);
+        }
+        listToCompare.clear();
+        listToCompare.addAll(variableParametersDictionary.get(varName3));
+        if (!(listToCompare.equals(p.expr_2.accept(new ExprVisitor<R,A>(), arg)))){
+          System.out.println("Type Error");
+          System.out.println("Expression under then and else should have the same type");
+          System.exit(1);
+        }
+        return listToCompare;
+      }
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       p.expr_3.accept(new ExprVisitor<R,A>(), arg);
-      return null;
+      return p.expr_2.accept(new ExprVisitor<R,A>(), arg);
     }
-    public R visit(org.syntax.stella.Absyn.Let p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Let p, A arg)
     { /* Code for Let goes here */
       for (org.syntax.stella.Absyn.PatternBinding x: p.listpatternbinding_) {
         x.accept(new PatternBindingVisitor<R,A>(), arg);
@@ -344,7 +483,7 @@ public class VisitTypeCheck
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.LetRec p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.LetRec p, A arg)
     { /* Code for LetRec goes here */
       for (org.syntax.stella.Absyn.PatternBinding x: p.listpatternbinding_) {
         x.accept(new PatternBindingVisitor<R,A>(), arg);
@@ -352,49 +491,49 @@ public class VisitTypeCheck
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.LessThan p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.LessThan p, A arg)
     { /* Code for LessThan goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.LessThanOrEqual p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.LessThanOrEqual p, A arg)
     { /* Code for LessThanOrEqual goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.GreaterThan p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.GreaterThan p, A arg)
     { /* Code for GreaterThan goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.GreaterThanOrEqual p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.GreaterThanOrEqual p, A arg)
     { /* Code for GreaterThanOrEqual goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Equal p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Equal p, A arg)
     { /* Code for Equal goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.NotEqual p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.NotEqual p, A arg)
     { /* Code for NotEqual goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.TypeAsc p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.TypeAsc p, A arg)
     { /* Code for TypeAsc goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       p.type_.accept(new TypeVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Abstraction p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Abstraction p, A arg)
     { /* Code for Abstraction goes here */
       for (org.syntax.stella.Absyn.ParamDecl x: p.listparamdecl_) {
         x.accept(new ParamDeclVisitor<R,A>(), arg);
@@ -402,13 +541,13 @@ public class VisitTypeCheck
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Variant p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Variant p, A arg)
     { /* Code for Variant goes here */
       //p.stellaident_;
       p.exprdata_.accept(new ExprDataVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Match p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Match p, A arg)
     { /* Code for Match goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       for (org.syntax.stella.Absyn.MatchCase x: p.listmatchcase_) {
@@ -416,179 +555,272 @@ public class VisitTypeCheck
       }
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.List p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.List p, A arg)
     { /* Code for List goes here */
       for (org.syntax.stella.Absyn.Expr x: p.listexpr_) {
         x.accept(new ExprVisitor<R,A>(), arg);
       }
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Add p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Add p, A arg)
     { /* Code for Add goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Subtract p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Subtract p, A arg)
     { /* Code for Subtract goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.LogicOr p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.LogicOr p, A arg)
     { /* Code for LogicOr goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Multiply p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Multiply p, A arg)
     { /* Code for Multiply goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Divide p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Divide p, A arg)
     { /* Code for Divide goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.LogicAnd p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.LogicAnd p, A arg)
     { /* Code for LogicAnd goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Application p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Application p, A arg)
     { /* Code for Application goes here */
+//      Check that application is a function and compares arguments
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
+      ArrayList<String> type = new ArrayList<>();
       for (org.syntax.stella.Absyn.Expr x: p.listexpr_) {
-        x.accept(new ExprVisitor<R,A>(), arg);
+         type = x.accept(new ExprVisitor<R,A>(), arg);
       }
+      if (p.expr_ instanceof Var){
+        String varName = ((Var) p.expr_).stellaident_;
+        if (!(functionParametersDictionary.containsKey(varName) || functions.containsKey(varName))) {
+          System.out.println("Type Error");
+          System.out.println("Applying non-function");
+          System.exit(1);
+        }
+        if (functions.containsKey(varName)) {
+            if (!functions.get(varName).a.equals(type)) {
+              System.out.println("Type Error");
+              System.out.println("Wrong parameters for function " + varName);
+              System.exit(1);
+            }
+            return type;
+        }
+      }
+
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.DotRecord p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.DotRecord p, A arg)
     { /* Code for DotRecord goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       //p.stellaident_;
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.DotTuple p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.DotTuple p, A arg)
     { /* Code for DotTuple goes here */
-      p.expr_.accept(new ExprVisitor<R,A>(), arg);
-      //p.integer_;
-      return null;
-    }
-    public R visit(org.syntax.stella.Absyn.Tuple p, A arg)
-    { /* Code for Tuple goes here */
-      for (org.syntax.stella.Absyn.Expr x: p.listexpr_) {
-        x.accept(new ExprVisitor<R,A>(), arg);
+//      returns the type of the element and check that argument is a pair
+      ArrayList<String> result = new ArrayList<>();
+      ArrayList<String> listToCompare = new ArrayList<>();
+      listToCompare.addAll(p.expr_.accept(new ExprVisitor<R,A>(), arg));
+      if (!listToCompare.get(0).equals("Pair")){
+        System.out.println("Type Error");
+        System.out.println("Can not access element of pair");
+        System.exit(1);
       }
-      return null;
+      result.add(listToCompare.get(p.integer_));
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.Record p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Tuple p, A arg)
+    { /* Code for Tuple goes here */
+//      Determine the type of a pair
+      ArrayList<String> pair = new ArrayList<>();
+      pair.add("Pair");
+      for (org.syntax.stella.Absyn.Expr x: p.listexpr_) {
+        pair.addAll(x.accept(new ExprVisitor<R,A>(), arg));
+      }
+      return pair;
+    }
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Record p, A arg)
     { /* Code for Record goes here */
       for (org.syntax.stella.Absyn.Binding x: p.listbinding_) {
         x.accept(new BindingVisitor<R,A>(), arg);
       }
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.ConsList p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.ConsList p, A arg)
     { /* Code for ConsList goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Head p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Head p, A arg)
     { /* Code for Head goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.IsEmpty p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.IsEmpty p, A arg)
     { /* Code for IsEmpty goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Tail p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Tail p, A arg)
     { /* Code for Tail goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Inl p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Inl p, A arg)
     { /* Code for Inl goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Inr p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Inr p, A arg)
     { /* Code for Inr goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Succ p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Succ p, A arg)
     { /* Code for Succ goes here */
-      p.expr_.accept(new ExprVisitor<R,A>(), arg);
-      return null;
+//      Check that the expression under succ has typeNat
+      if (p.expr_ instanceof Abstraction){
+        System.out.println("Type Error");
+        System.out.println("Expression under succ shouldn't be anonymous function");
+        System.exit(1);
+      }
+      if (p.expr_ instanceof Var){
+        String varName = ((Var) p.expr_).stellaident_;
+        if (!variableParametersDictionary.containsKey(varName)){
+          System.out.println("Type Error");
+          System.out.println("Variable " + varName + "is undefined");
+          System.exit(1);
+        } else if (!(variableParametersDictionary.get(varName).equals("TypeNat"))) {
+          System.out.println("Type Error");
+          System.out.println("Expression under Succ should have TypeNat");
+          System.exit(1);
+        }
+      }
+      ArrayList<String> listToCompare = new ArrayList<>();
+      listToCompare.add("TypeNat");
+      if (!(p.expr_.accept(new ExprVisitor<R,A>(), arg).equals(listToCompare))){
+        System.out.println("Type Error");
+        System.out.println("Expression under Succ should have TypeNat");
+        System.exit(1);
+      };
+      return listToCompare;
     }
-    public R visit(org.syntax.stella.Absyn.LogicNot p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.LogicNot p, A arg)
     { /* Code for LogicNot goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Pred p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Pred p, A arg)
     { /* Code for Pred goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.IsZero p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.IsZero p, A arg)
     { /* Code for IsZero goes here */
-      p.expr_.accept(new ExprVisitor<R,A>(), arg);
-      return null;
+//      Check that the expression under iszero has typeNat
+      if (p.expr_ instanceof Var){
+        String varName = ((Var) p.expr_).stellaident_;
+        if (!variableParametersDictionary.containsKey(varName)){
+          System.out.println("Type Error");
+          System.out.println("Variable " + varName + "is undefined");
+          System.exit(1);
+        } else if (!(variableParametersDictionary.get(varName).equals("TypeNat"))) {
+          System.out.println("Type Error");
+          System.out.println("Expression under IsZero should have TypeNat");
+          System.exit(1);
+        }
+      }
+      ArrayList<String> listToCompare = new ArrayList<>();
+      listToCompare.add("TypeNat");
+      if (!(p.expr_.accept(new ExprVisitor<R,A>(), arg).equals(listToCompare))){
+        System.out.println("Type Error");
+        System.out.println("Expression under IsZero should have TypeNat");
+        System.exit(1);
+      };
+      listToCompare.clear();
+      listToCompare.add("TypeBool");
+      return listToCompare;
     }
-    public R visit(org.syntax.stella.Absyn.Fix p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Fix p, A arg)
     { /* Code for Fix goes here */
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.NatRec p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.NatRec p, A arg)
     { /* Code for NatRec goes here */
       p.expr_1.accept(new ExprVisitor<R,A>(), arg);
       p.expr_2.accept(new ExprVisitor<R,A>(), arg);
       p.expr_3.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Fold p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Fold p, A arg)
     { /* Code for Fold goes here */
       p.type_.accept(new TypeVisitor<R,A>(), arg);
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.Unfold p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Unfold p, A arg)
     { /* Code for Unfold goes here */
       p.type_.accept(new TypeVisitor<R,A>(), arg);
       p.expr_.accept(new ExprVisitor<R,A>(), arg);
       return null;
     }
-    public R visit(org.syntax.stella.Absyn.ConstTrue p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.ConstTrue p, A arg)
     { /* Code for ConstTrue goes here */
-      return null;
+      ArrayList<String> result = new ArrayList<>();
+      result.add("TypeBool");
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.ConstFalse p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.ConstFalse p, A arg)
     { /* Code for ConstFalse goes here */
-      return null;
+      ArrayList<String> result = new ArrayList<>();
+      result.add("TypeBool");
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.ConstUnit p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.ConstUnit p, A arg)
     { /* Code for ConstUnit goes here */
-      return null;
+      ArrayList<String> result = new ArrayList<>();
+      result.add("TypeUnit");
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.ConstInt p, A arg)
-    { /* Code for ConstInt goes here */
-      //p.integer_;
-      return null;
+    public ArrayList<String> visit(org.syntax.stella.Absyn.ConstInt p, A arg)
+    {
+      ArrayList<String> result = new ArrayList<>();
+      result.add("TypeNat");
+      return result;
     }
-    public R visit(org.syntax.stella.Absyn.Var p, A arg)
+    public ArrayList<String> visit(org.syntax.stella.Absyn.Var p, A arg)
     { /* Code for Var goes here */
       //p.stellaident_;
-      return null;
+//      Checks if the variable exists and returns its type
+      ArrayList<String> result = new ArrayList<>();
+      if (variableParametersDictionary.containsKey(p.stellaident_)){
+        result.addAll(variableParametersDictionary.get(p.stellaident_));
+      } else if (functionParametersDictionary.containsKey(p.stellaident_))
+        result.addAll(functionParametersDictionary.get(p.stellaident_));
+      else if (!functions.containsKey(p.stellaident_)){
+        System.out.println("Type Error");
+        System.out.println("The variable " + p.stellaident_ + " is undefined");
+        System.exit(1);
+      }
+      return result;
     }
   }
   public class PatternBindingVisitor<R,A> implements org.syntax.stella.Absyn.PatternBinding.Visitor<R,A>

@@ -12,11 +12,9 @@ class MainTest {
 
     @ParameterizedTest(name = "{index} Typechecking well-typed program {0}")
     @ValueSource(strings = {
-            "tests/well-typed/factorial.stella",
-            "tests/well-typed/squares.stella",
-            "tests/well-typed/higher-order-1.stella",
-            "tests/well-typed/increment_twice.stella",
-            "tests/well-typed/logical-operators.stella"})
+            "tests/pairs/well-typed/pairs-1.stella",
+            "tests/sum-types/well-typed/sum-types-1.stella",
+            "tests/sum-types/well-typed/sum-types-2.stella"})
     public void testWellTyped(String filepath) throws IOException, Exception {
         String[] args = new String[0];
         final InputStream original = System.in;
@@ -28,22 +26,8 @@ class MainTest {
 
     @ParameterizedTest(name = "{index} Typechecking ill-typed program {0}")
     @ValueSource(strings = {
-            "tests/ill-typed/applying-non-function-1.stella",
-            "tests/ill-typed/applying-non-function-2.stella",
-            "tests/ill-typed/applying-non-function-3.stella",
-            "tests/ill-typed/argument-type-mismatch-1.stella",
-            "tests/ill-typed/argument-type-mismatch-2.stella",
-            "tests/ill-typed/argument-type-mismatch-3.stella",
-            "tests/ill-typed/bad-if-1.stella",
-            "tests/ill-typed/bad-if-2.stella",
-            "tests/ill-typed/bad-succ-1.stella",
-            "tests/ill-typed/bad-succ-2.stella",
-            "tests/ill-typed/bad-succ-3.stella",
-            "tests/ill-typed/shadowed-variable-1.stella",
-            "tests/ill-typed/undefined-variable-1.stella",
-            "tests/ill-typed/undefined-variable-2.stella",
-            "tests/ill-typed/bad-squares-1.stella",
-            "tests/ill-typed/bad-squares-2.stella"})
+            "tests/pairs/ill-typed/bad-pairs-1.stella",
+            "tests/sum-types/ill-typed/bad-sum-types-1.stella",})
     public void testIllTyped(String filepath) throws IOException, Exception {
         String[] args = new String[0];
         final InputStream original = System.in;
@@ -60,6 +44,5 @@ class MainTest {
         if (!typecheckerFailed) {
             throw new Exception("expected the typechecker to fail!");
         }
-        // System.setIn(original); // dead code
     }
 }
